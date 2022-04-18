@@ -1,0 +1,435 @@
+Лаба 1: модель предметной области(вышлю отдельно)
+Лаба 2-3: Разработка таблиц и ограничений целостности: поочередно вносишь запросы 
+
+CREATE TABLE Provider(
+IdPr serial primary key UNIQUE,
+NamePr char(20) NOT NULL,
+CityPr char(20) NOT NULL,
+AddressPr char(20) NOT NULL DEFAULT 'Неизвестен',
+Rating numeric CHECK ((Rating > 0) AND (Rating < 11)),
+CONSTRAINT unique_name_city UNIQUE (NamePr, CityPr),
+Rating_Det text NOT NULL
+);
+
+CREATE TABLE Project(
+IdPj serial primary key UNIQUE,
+NamePj char(20) NOT NULL,
+CityPj char(20) NOT NULL,
+Address char(20) NOT NULL,
+Budget numeric NOT NULL CHECK (Budget > 0)
+);
+
+CREATE TABLE Detail_(
+IdDe serial primary key UNIQUE,
+NamePr char(20) NOT NULL,
+Price int NOT NULL CHECK (Price > 0),
+Weight int NOT NULL CHECK (Weight > 0),
+Color char(20) NOT NULL CHECK(Color in ('Красный','Оранжевый','Желтый',
+					'Зеленый','Голубой','Синий',
+					'Фиолетовый','Черный','Белый')),
+
+price_det text,
+IdPj int NOT NULL,
+
+FOREIGN KEY(IdPj)
+REFERENCES Project(IdPj)
+ON DELETE CASCADE
+ON UPDATE CASCADE
+);
+
+CREATE TABLE Supply (
+IdSu serial NOT NULL PRIMARY KEY
+IdPr int NOT NULL,
+IdDe int NOT NULL,
+Quantity int NOT NULL,
+
+FOREIGN KEY (IdPr)
+REFERENCES Provider (IdPr)
+ON DELETE CASCADE
+ON UPDATE CASCADE,
+
+FOREIGN KEY(IdDe)
+REFERENCES Detail_(IdDe)
+ON DELETE CASCADE
+ON UPDATE CASCADE,
+
+CHECK (Quantity > 0) 
+);
+
+Лаба 4: Внести создание триггера на автозаполнение 
+Добавить файлы по пути, указанном в запросе и внести запросы
+
+CREATE FUNCTION setPriceDet() RETURNS trigger AS $$
+DECLARE
+	_idde int; _namepr char(30);_price int;_weight int;_color char(20);_price_det char(10);
+	
+BEGIN
+DELETE FROM Detail_ WHERE (idde = NEW.idde);
+	_idde = NEW.idde ;
+	_namepr = NEW.namepr;
+	_price = NEW.price;
+	_weight = NEW.weight;
+	_color = NEW.color;
+	
+ IF NEW.Price < 1000  THEN
+            _price_det := 'дешевая';
+			
+			INSERT INTO Detail_ (idde, namepr, price, weight, color, price_det) 
+			VALUES (_idde, _namepr, _price, _weight, _color, _price_det) ;
+       		return NEW;
+		
+ ELSIF NEW.Price > 999  THEN
+            _price_det := 'дорогая';
+			
+			INSERT INTO Detail_ (idde, namepr, price, weight, color, price_det) 
+			VALUES (_idde, _namepr, _price, _weight, _color, _price_det) ;
+			return NEW;
+        END IF;
+ 
+END $$
+		LANGUAGE plpgsql;
+		
+CREATE TRIGGER setMarkPrice
+AFTER INSERT ON Detail_ FOR EACH ROW
+WHEN (pg_trigger_depth() < 1)
+EXECUTE PROCEDURE setPriceDet();
+
+
+
+
+
+
+CREATE FUNCTION setRatingDet() RETURNS trigger AS $$
+DECLARE
+	_idpr int; _namepr char(50); _citypr char(50); _addresspr char(50); _rating numeric; _rating_det text;
+	
+BEGIN
+DELETE FROM Provider WHERE (idpr = NEW.idpr);
+	_idpr = NEW.idpr ;
+	_namepr = NEW.namepr;
+	_citypr = NEW.citypr;
+	_addresspr = NEW.addresspr;
+	_rating = NEW.rating;
+	
+ IF NEW.Rating < 6  THEN
+            _rating_det := 'ненадежный';
+			
+			INSERT INTO Provider (idpr, namepr, citypr, addresspr, rating, rating_det) 
+			VALUES (_idpr, _namepr, _citypr, _addresspr, _rating, _rating_det) ;
+       		return NEW;
+		
+ ELSIF NEW.Rating > 5  THEN
+            _rating_det := 'надежный';
+			
+			INSERT INTO Provider (idpr, namepr, citypr, addresspr, rating, rating_det) 
+			VALUES (_idpr, _namepr, _citypr, _addresspr, _rating, _rating_det) ;
+       		return NEW;
+        END IF;
+ 
+END $$
+		LANGUAGE plpgsql;
+		
+CREATE TRIGGER setMark
+AFTER INSERT ON Provider FOR EACH ROW
+WHEN (pg_trigger_depth() < 1)
+EXECUTE PROCEDURE setRatingDet();
+
+
+
+copy Provider(idpr, namepr,citypr, addresspr, rating, rating_det )
+FROM   'C:\Program Files\PostgreSQL\12\bin\Database\ProviderDB.csv'
+DELIMITER ';' CSV ;
+
+copy Detail_(idde, namepr, price, weight, color, price_det, idpj )
+FROM   'C:\Program Files\PostgreSQL\12\bin\Database\DetailDB.csv'
+DELIMITER ';' CSV ;
+
+copy Project(idpj, namepj, citypj, address, budget )
+FROM   'C:\Program Files\PostgreSQL\12\bin\Database\ProjectDB.csv'
+DELIMITER ';' CSV ;
+
+copy Supply(idsu, idde, idpr, quantity )
+FROM   'C:\Program Files\PostgreSQL\12\bin\Database\SupplyDB.csv'
+DELIMITER ';' CSV ;
+
+INSERT INTO Supply(idsu, idde, idpr, quantity ) VALUES (40, 8, 4, 20);
+
+
+Лаба 5: разработка представлений: внести представления
+
+CREATE VIEW SupplyForDirector AS	
+    SELECT D.Namepr AS NameDe, Pr.Citypr as CityDe, D.Color, D.Price_det,
+			Pr.Namepr, Pr.Citypr, Pr.Rating_det, 
+			S.Quantity, S.Quantity*D.Weight*0.001 as WeightSupply,
+			S.Quantity*D.Price*0.001 as PriceSupply
+    FROM Detail_ as D, Provider as Pr, Supply as S
+	WHERE D.idde = S.idde and S.idpr = Pr.idpr
+    ORDER BY D.Price_det, CityDe, Pr.Rating_det, Pr.Citypr, NameDe, Pr.Namepr,
+	PriceSupply DESC, WeightSupply DESC;
+
+
+
+
+CREATE VIEW ProjectForDirector AS	
+    SELECT NamePj, CityPj, Budget
+    FROM Project
+    ORDER BY  Budget DESC, CityPj, NamePj;
+
+
+CREATE VIEW DetailForDirector AS	
+    SELECT NamePr, Price*0.001 as Price, color, Price_det
+    FROM Detail_
+    ORDER BY Price desc, NamePr;
+
+
+
+CREATE VIEW ProviderForDirector AS         
+    SELECT NamePr, CityPr, Rating_det
+    FROM Provider
+    ORDER BY Rating_det, Citypr, NamePr;
+---------------------------------------------------------------------------------------------------
+Представления экономист
+
+CREATE VIEW SupplyForEconomist AS		
+    SELECT D.Namepr AS NameDe, Pr.Citypr as CityDe, D.Color, D.Price_det,
+			Pr.Namepr, Pr.Citypr, Pr.Rating_det, 
+			S.Quantity, S.Quantity*D.Weight*0.001 as WeightSupply,
+			S.Quantity*D.Price*0.001 as PriceSupply
+    FROM Detail_ as D, Provider as Pr, Supply as S
+	WHERE D.idde = S.idde and S.idpr = Pr.idpr
+    ORDER BY D.Namepr, Pr.Namepr, PriceSupply DESC, WeightSupply DESC;
+  
+
+
+CREATE VIEW ProjectForEconomist AS		
+    SELECT NamePj, CityPj, Address, Budget
+    FROM Project
+    ORDER BY CityPj, NamePj, Budget DESC;
+ 
+
+CREATE VIEW ProviderForEconomist AS           
+    SELECT NamePr, CityPr, AddressPr, Rating, Rating_det
+    FROM Provider
+    ORDER BY CityPr, NamePr, Rating DESC;
+
+CREATE VIEW DetailForEconomist AS		
+    SELECT NamePr, Price*0.001 as Price, Weight*0.001 as weight, color, Price_det
+    FROM Detail_
+    ORDER BY Price desc, NamePr, color, Weight ASC;
+
+
+Лаба 6: внести запросы
+
+
+Список всех поставщиков 
+SELECT * FROM Provider;
+
+список надежных поставщиков
+SELECT * FROM Provider
+WHERE Rating_det = 'надежный';
+
+список ненадежных поставщиков
+SELECT * FROM Provider
+WHERE Rating_det = 'ненадежный';
+----------------------------------------
+Список всех деталей
+SELECT * FROM Detail_;
+
+список надежных дорогих
+SELECT * FROM Detail_
+WHERE Price_det = 'дорогая';
+
+список ненадежных дешевых
+SELECT * FROM Detail_
+WHERE Price_det = 'дешевая';
+----------------------------------------
+Список всех проектов
+SELECT * FROM Project;
+
+Список проектов из города Москва
+SELECT * FROM Project
+WHERE CItyPj = 'Москва';
+
+Список проектов с бюджетом от 1000 до 30000
+SELECT * FROM Project
+WHERE Budget > 1000 AND Budget < 30000;
+----------------------------------------
+Список всех поставок
+SELECT * FROM Supply;
+
+Список всех поставок дорогих/дешевых деталей
+SELECT S.IdSu, S.Idde, S.IdPr, S.Quantity,
+D.Price_det
+FROM Detail_ as D, Provider as Pr, Supply as S
+WHERE D.idde = S.idde and S.idpr = Pr.idpr and
+D.Price_det = 'дорогая';
+
+SELECT S.IdSu, S.Idde, S.IdPr, S.Quantity,
+D.Price_det
+FROM Detail_ as D, Provider as Pr, Supply as S
+WHERE D.idde = S.idde and S.idpr = Pr.idpr and
+D.Price_det = 'дешевая';
+
+
+Список всех поставок надежных/ненадежных поставщиков
+
+SELECT S.IdSu, S.Idde, S.IdPr, S.Quantity,
+Pr.Rating_det
+FROM Detail_ as D, Provider as Pr, Supply as S
+WHERE D.idde = S.idde and S.idpr = Pr.idpr and
+Pr.Rating_det = 'надежный';
+
+SELECT S.IdSu, S.Idde, S.IdPr, S.Quantity,
+Pr.Rating_det
+FROM Detail_ as D, Provider as Pr, Supply as S
+WHERE D.idde = S.idde and S.idpr = Pr.idpr and
+Pr.Rating_det = 'ненадежный';
+
+Список всех поставок стоимостью от 500 до 3000 руб
+
+SELECT S.IdSu, S.Idde, S.IdPr, S.Quantity,
+S.Quantity*D.Price AS Стоимость
+FROM Detail_ as D, Provider as Pr, Supply as S
+WHERE D.idde = S.idde and S.idpr = Pr.idpr and
+S.Quantity*D.Price > 500 AND S.Quantity*D.Price < 3000;
+-------------------------------------------------------
+Директор
+
+Список всех поставщиков с рейтингом не ниже/выше среднего
+
+SELECT  Pr.IdPr, Pr.NamePr, Pr.CityPr, Pr.AddressPr, Pr.Rating, COUNT(*)
+FROM Provider as Pr INNER JOIN Supply as S ON S.IdPr= Pr.Idpr
+WHERE Rating < (SELECT AVG(Rating) FROM Provider) 
+GROUP BY Pr.IdPr
+;	
+
+SELECT  Pr.IdPr, Pr.NamePr, Pr.CityPr, Pr.AddressPr, Pr.Rating, COUNT(*)
+FROM Provider as Pr INNER JOIN Supply as S ON S.IdPr= Pr.Idpr
+WHERE Rating > (SELECT AVG(Rating) FROM Provider) 
+GROUP BY Pr.IdPr
+;	
+
+список поставщиков с максимальным/минимальным рейтингом – с указанием у
+каждого поставщика общей суммы сделанной им поставок.
+
+SELECT  Pr.IdPr, Pr.NamePr, Pr.CityPr, Pr.AddressPr, Pr.Rating, COUNT(*)
+FROM Provider as Pr INNER JOIN Supply as S ON S.IdPr= Pr.Idpr
+WHERE Pr.Rating = (Select MAX(Provider.Rating) FROM Provider)
+GROUP BY Pr.IdPr
+;	
+
+SELECT  Pr.IdPr, Pr.NamePr, Pr.CityPr, Pr.AddressPr, Pr.Rating, COUNT(*)
+FROM Provider as Pr INNER JOIN Supply as S ON S.IdPr= Pr.Idpr
+WHERE Pr.Rating = (Select MIN(Provider.Rating) FROM Provider)
+GROUP BY Pr.IdPr
+;
+----------------------------------------------------------
+список всех деталей с ценой не ниже/ не выше средней
+
+SELECT  D.IdDe, D.NamePr, D.Price, D.Weight, D.Color, SUM(D.Price)
+FROM Detail_ as D INNER JOIN Supply as S ON S.IdDe= D.IdDe
+WHERE Price < (SELECT AVG(Price) FROM Detail_) 
+GROUP BY D.Price, D.IdDe;
+
+SELECT  D.IdDe, D.NamePr, D.Price, D.Weight, D.Color, SUM(D.Price)
+FROM Detail_ as D INNER JOIN Supply as S ON S.IdDe= D.IdDe
+WHERE Price > (SELECT AVG(Price) FROM Detail_) 
+GROUP BY D.Price, D.IdDe;
+
+список деталей с максимальной/ минимальной ценой
+
+SELECT  D.IdDe, D.NamePr, D.Price, D.Weight, D.Color, SUM(D.Price)
+FROM Detail_ as D INNER JOIN Supply as S ON S.IdDe= D.IdDe
+WHERE Price = (SELECT MAX(Price) FROM Detail_) 
+GROUP BY D.Price, D.IdDe
+;	
+
+SELECT  D.IdDe, D.NamePr, D.Price, D.Weight, D.Color, SUM(D.Price)
+FROM Detail_ as D INNER JOIN Supply as S ON S.IdDe= D.IdDe
+WHERE Price = (SELECT MIN(Price) FROM Detail_) 
+GROUP BY D.Price, D.IdDe
+;	
+
+---------------------------------------------------------
+список всех проектов с бюджетом не ниже/ не выше среднего
+
+SELECT  Pj.Idpj, Pj.NamePj, Pj.CityPj, Pj.Address, Pj.Budget,
+ count(*), SUM(S.Quantity*D.Price) 
+FROM Project as Pj INNER JOIN Detail_ as D ON D.IdPj= Pj.IdPj, Supply as S 
+WHERE Budget >  (SELECT AVG(Budget) FROM Project) and S.idde= d.idde
+GROUP BY  Pj.IdPj
+;
+SELECT  Pj.Idpj, Pj.NamePj, Pj.CityPj, Pj.Address, Pj.Budget,
+ count(*), SUM(S.Quantity*D.Price) 
+FROM Project as Pj INNER JOIN Detail_ as D ON D.IdPj= Pj.IdPj, Supply as S 
+WHERE Budget <  (SELECT AVG(Budget) FROM Project) and S.idde= d.idde
+GROUP BY  Pj.IdPj
+;
+список всех проектов с бюджетов равным макс/мин
+
+SELECT  Pj.Idpj, Pj.NamePj, Pj.CityPj, Pj.Address, Pj.Budget,
+ count(*), SUM(S.Quantity*D.Price) 
+FROM Project as Pj INNER JOIN Detail_ as D ON D.IdPj= Pj.IdPj, Supply as S 
+WHERE Budget = (SELECT MIN(Budget) FROM Project) and S.idde= d.idde
+GROUP BY  Pj.IdPj
+;
+SELECT  Pj.Idpj, Pj.NamePj, Pj.CityPj, Pj.Address, Pj.Budget,
+ count(*), SUM(S.Quantity*D.Price) 
+FROM Project as Pj INNER JOIN Detail_ as D ON D.IdPj= Pj.IdPj, Supply as S 
+WHERE Budget = (SELECT MAX(Budget) FROM Project) and S.idde= d.idde
+GROUP BY  Pj.IdPj
+;
+----------------------------------------------------------------
+сумма всех поставок
+SELECT   SUM(quantity)
+FROM Supply
+;	
+сумма поставок дорогих деталей
+SELECT SUM(D.Price*S.Quantity) as "Сумма(руб)", SUM(S.Quantity) as "Сумма(шт)"
+FROM Detail_ as D INNER JOIN Supply as S ON D.Idde = S.Idde
+WHERE D.Price_det = 'дорогая'
+;
+сумма поставок дешевых деталей
+SELECT SUM(D.Price*S.Quantity) as "Сумма(руб)", SUM(S.Quantity) as "Сумма(шт)"
+FROM Detail_ as D INNER JOIN Supply as S ON D.Idde = S.Idde
+WHERE D.Price_det = 'дешевая'
+;
+сумма поставок от надежных поставщиков
+SELECT  SUM(S.Quantity) as "Сумма(шт)"
+FROM Provider as Pr INNER JOIN Supply as S ON Pr.Idpr = S.Idpr
+WHERE Pr.Rating_det = 'надежный'
+;
+сумма поставок от ненадежных поставщиков
+SELECT  SUM(S.Quantity) as "Сумма(шт)"
+FROM Provider as Pr INNER JOIN Supply as S ON Pr.Idpr = S.Idpr
+WHERE Pr.Rating_det = 'ненадежный'
+;
+сумма поставок от заданного поставщика
+SELECT  SUM(S.Quantity) as "Сумма(шт)"
+FROM Provider as Pr INNER JOIN Supply as S ON Pr.Idpr = S.Idpr
+WHERE Pr.NamePr = 'Строй-ка'
+;
+
+Лаба 7: внести все поочередно
+
+CREATE USER Ivanov WITH PASSWORD 'ivanov1';
+CREATE USER Petrov WITH PASSWORD 'petrov2';
+CREATE USER Sidorov WITH PASSWORD 'sidorov3';
+CREATE USER Koshkin WITH PASSWORD 'koshkin4';
+
+CREATE ROLE economist;
+CREATE ROLE director;
+
+GRANT SELECT ON Detail_, Project TO economist;
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON Supply, Provider
+TO economist;
+
+GRANT SELECT, DELETE ON Supply TO director;
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON  Provider, Project, Detail_
+TO director;
+
+
